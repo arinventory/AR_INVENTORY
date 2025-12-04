@@ -12,10 +12,10 @@ export function DashboardNav() {
   const pathname = usePathname()
   const router = useRouter()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
-  const [b2bOpen, setB2bOpen] = useState(true)
-  const [b2bSupplierOpen, setB2bSupplierOpen] = useState(true)
-  const [b2bBuyerOpen, setB2bBuyerOpen] = useState(true)
-  const [b2cOpen, setB2cOpen] = useState(true)
+  const [b2bOpen, setB2bOpen] = useState(false)
+  const [b2bSupplierOpen, setB2bSupplierOpen] = useState(false)
+  const [b2bBuyerOpen, setB2bBuyerOpen] = useState(false)
+  const [b2cOpen, setB2cOpen] = useState(false)
   const [sidebarWidth, setSidebarWidth] = useState(256) // 256px = 64 tailwind units
   const [isResizing, setIsResizing] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
@@ -104,6 +104,39 @@ export function DashboardNav() {
     { href: "/dashboard/sales", label: "Sales", icon: "B" },
     { href: "/dashboard/customers", label: "Customers", icon: "C" },
   ]
+
+  // Auto-open sections on first render if the current path lives inside them
+  useEffect(() => {
+    const pathMatches = (hrefs: string[]) =>
+      hrefs.some((href) => pathname?.startsWith(href))
+
+    const b2bSectionHrefs = [
+      ...b2bItems.map((item) => item.href),
+      ...b2bSupplierItems.map((item) => item.href),
+      ...b2bBuyerItems.map((item) => item.href),
+    ]
+
+    const b2cSectionHrefs = [
+      ...b2cItems.map((item) => item.href),
+      ...b2cSubItems.map((item) => item.href),
+    ]
+
+    if (pathMatches(b2bSectionHrefs)) {
+      setB2bOpen(true)
+    }
+
+    if (pathMatches(b2bSupplierItems.map((item) => item.href))) {
+      setB2bSupplierOpen(true)
+    }
+
+    if (pathMatches(b2bBuyerItems.map((item) => item.href))) {
+      setB2bBuyerOpen(true)
+    }
+
+    if (pathMatches(b2cSectionHrefs)) {
+      setB2cOpen(true)
+    }
+  }, [pathname])
 
   return (
     <aside 
