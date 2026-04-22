@@ -8,7 +8,8 @@ import {
   UserCog, 
   LogOut,
   Clock,
-  CalendarCheck
+  CalendarCheck,
+  TrendingUp
 } from 'lucide-react';
 import { Logo } from './UIComponents';
 
@@ -25,6 +26,7 @@ const NAV_ITEMS = [
   { id: 'advance', label: 'Order Booking', icon: CalendarCheck },
   { id: 'inventory', label: 'Inventory', icon: Package },
   { id: 'customers', label: 'Customers', icon: Users },
+  { id: 'reports', label: 'Reports', icon: TrendingUp },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({ onLogout, activeModule, setActiveModule }) => {

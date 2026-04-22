@@ -10,6 +10,9 @@ export interface InventoryItem {
   size?: string;
   color?: string;
   hsn_code?: string;
+  supplier_code?: string;
+  cost_price?: number;
+  expenses?: number;
   stock_status?: StockStatus;
   location?: string;
   remarks?: string;
@@ -22,6 +25,8 @@ export interface BillItem {
   item_name: string;
   quantity: number;
   rate: number;
+  cost_price?: number;
+  expenses?: number;
   line_total: number;
   hsn_code?: string;
   sl_no?: number;

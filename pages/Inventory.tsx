@@ -48,6 +48,9 @@ export const Inventory: React.FC = () => {
     category: 'Menswear', 
     quantity: 0,
     rate: 0,
+    cost_price: 0,
+    expenses: 0,
+    supplier_code: '',
     size: '',
     color: '',
     hsn_code: '6204', 
@@ -120,9 +123,19 @@ export const Inventory: React.FC = () => {
 
   // --- HANDLERS ---
   
-  const handleInputChange = (field: keyof InventoryItem, value: any) => {
+  const handleInputChange = async (field: keyof InventoryItem, value: any) => {
     const newData = { ...formData, [field]: value };
     setFormData(newData);
+
+    // If barcode is updated, check if it exists (but only if not in editing mode)
+    if (field === 'barcode' && value && !editingId) {
+        const existing = items.find(i => i.barcode === value);
+        if (existing) {
+            toast({ title: 'Item Exists', description: `${existing.item_name} found. Switching to edit mode.` });
+            setEditingId(existing.id);
+            setFormData({ ...existing });
+        }
+    }
   };
 
   const handleSave = async () => {
@@ -240,12 +253,12 @@ export const Inventory: React.FC = () => {
                      <tr>
                         <th className="py-4 px-6">Barcode</th>
                         <th className="py-4 px-6">Item Name</th>
-                        <th className="py-4 px-6">Category</th>
+                        <th className="py-4 px-6">Supplier</th>
                         <th className="py-4 px-6 text-center">Size</th>
                         <th className="py-4 px-6 text-center">Color</th>
-                        <th className="py-4 px-6 text-right">Rate</th>
+                        <th className="py-4 px-6 text-right">Price</th>
+                        <th className="py-4 px-6 text-right">Profit</th>
                         <th className="py-4 px-6 text-center">Stock</th>
-                        <th className="py-4 px-6">Location</th>
                         <th className="py-4 px-6 text-center">Actions</th>
                      </tr>
                   </thead>
@@ -266,12 +279,16 @@ export const Inventory: React.FC = () => {
                                 <span className="ml-2 inline-block w-2 h-2 rounded-full bg-red-500" title="Out of Stock"/>
                               )}
                            </td>
-                           <td className="py-3 px-6 text-gray-500">{item.category}</td>
+                           <td className="py-3 px-6 text-gray-500 font-mono text-[10px]">{item.supplier_code || '-'}</td>
                            <td className="py-3 px-6 text-center font-bold">{item.size || '-'}</td>
                            <td className="py-3 px-6 text-center capitalize">{item.color || '-'}</td>
                            <td className="py-3 px-6 text-right font-mono font-bold text-charcoal-900">₹{item.rate?.toLocaleString() || '0'}</td>
+                           <td className="py-3 px-6 text-right">
+                              <span className={`font-mono font-bold ${(item.rate || 0) - ((item.cost_price || 0) + (item.expenses || 0)) >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                                ₹{((item.rate || 0) - ((item.cost_price || 0) + (item.expenses || 0))).toLocaleString()}
+                              </span>
+                           </td>
                            <td className="py-3 px-6 text-center font-mono font-bold text-gold-600">{item.quantity}</td>
-                           <td className="py-3 px-6 text-xs uppercase text-gray-400 font-bold">{item.location}</td>
                            <td className="py-3 px-6 text-center">
                               <div className="flex items-center justify-center gap-3">
                                  <button 
@@ -371,15 +388,35 @@ export const Inventory: React.FC = () => {
                         </h3>
                         <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-4">
+                                <Input label="Barcode" placeholder="Scan..." isMonospaced value={formData.barcode} onChange={e => handleInputChange('barcode', e.target.value)} icon={<ScanLine size={14}/>} />
+                                <Input label="Supplier Code" placeholder="e.g. SUP-001" value={formData.supplier_code} onChange={e => handleInputChange('supplier_code', e.target.value)} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
                                 <Input label="Size" placeholder="e.g. XL, 42" value={formData.size} onChange={e => handleInputChange('size', e.target.value)} />
                                 <Input label="Color" placeholder="e.g. Red, Blue" value={formData.color} onChange={e => handleInputChange('color', e.target.value)} />
                             </div>
                             <div className="grid grid-cols-2 gap-4">
-                                <Input label="Rate (₹)" type="number" isMonospaced value={formData.rate || ''} onChange={e => handleInputChange('rate', parseFloat(e.target.value))} />
-                                <Input label="Stock Qty" type="number" isMonospaced value={formData.quantity || ''} onChange={e => handleInputChange('quantity', parseInt(e.target.value))} />
+                                <Input label="Cost Price (₹)" type="number" isMonospaced value={formData.cost_price || ''} onChange={e => handleInputChange('cost_price', parseFloat(e.target.value))} />
+                                <Input label="Expenses (₹)" type="number" isMonospaced value={formData.expenses || ''} onChange={e => handleInputChange('expenses', parseFloat(e.target.value))} />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4 mt-4">
+                                <Input label="Selling Price (₹)" type="number" isMonospaced value={formData.rate || ''} onChange={e => handleInputChange('rate', parseFloat(e.target.value))} />
+                                <div className="space-y-1.5 flex flex-col justify-end">
+                                    <label className="text-xs font-bold text-gold-600 uppercase tracking-widest flex items-center gap-2">
+                                        Profit / Loss
+                                    </label>
+                                    <div className={`h-11 px-4 flex items-center rounded-md font-mono font-bold text-sm border ${
+                                        ((formData.rate || 0) - ((formData.cost_price || 0) + (formData.expenses || 0))) >= 0 
+                                            ? 'bg-green-50 text-green-600 border-green-100' 
+                                            : 'bg-red-50 text-red-600 border-red-100'
+                                    }`}>
+                                        {((formData.rate || 0) - ((formData.cost_price || 0) + (formData.expenses || 0))) >= 0 ? 'PROFIT: ' : 'LOSS: '}
+                                        ₹{Math.abs((formData.rate || 0) - ((formData.cost_price || 0) + (formData.expenses || 0))).toLocaleString()}
+                                    </div>
+                                </div>
                             </div>
                             <div className="grid grid-cols-2 gap-4">
-                                <Input label="Barcode" placeholder="Scan..." isMonospaced value={formData.barcode} onChange={e => handleInputChange('barcode', e.target.value)} icon={<ScanLine size={14}/>} />
+                                <Input label="Stock Qty" type="number" isMonospaced value={formData.quantity || ''} onChange={e => handleInputChange('quantity', parseInt(e.target.value))} />
                                 <Input label="Location / shelf" placeholder="e.g. R1-S2" value={formData.location} onChange={e => handleInputChange('location', e.target.value)} icon={<MapPin size={14}/>} />
                             </div>
                             <Select 

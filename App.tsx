@@ -11,6 +11,7 @@ import { Inventory } from './pages/Inventory';
 import { Customers } from './pages/Customers';
 
 import { Users } from './pages/Users';
+import { Reports } from './pages/Reports';
 
 // Simple Router implementation
 const App: React.FC = () => {
@@ -103,7 +104,7 @@ const App: React.FC = () => {
                 activeModule === 'advance' ? 'Order Bookings' :
                 activeModule === 'inventory' ? 'Inventory Management' : 
                 activeModule === 'customers' ? 'Client Relationship Management' :
-
+                activeModule === 'reports' ? 'Sales Revenue & Analytics' :
                 activeModule === 'users' ? 'User Management' :
                 activeModule.replace('-', ' ').toUpperCase()}
              </h1>
@@ -165,6 +166,8 @@ const App: React.FC = () => {
               <Inventory />
             ) : activeModule === 'customers' ? (
               <Customers />
+            ) : activeModule === 'reports' ? (
+              <Reports />
             ) : activeModule === 'users' ? (
               <Users />
             ) : (

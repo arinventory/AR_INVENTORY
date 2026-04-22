@@ -112,7 +112,12 @@ export const getBillById = async (id: number) => {
 // --- BILL ITEMS ---
 
 export const createBillItems = async (billId: number, items: any[]) => {
-  const itemsWithBillId = items.map(item => ({ ...item, bill_id: billId }));
+  const itemsWithBillId = items.map(item => ({ 
+    ...item, 
+    bill_id: billId,
+    cost_price: item.cost_price || 0,
+    expenses: item.expenses || 0 // Store expenses at time of sale
+  }));
   
   const { data, error } = await supabase
     .from('bill_items')

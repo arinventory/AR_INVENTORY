@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS items (
     size TEXT,
     color TEXT,
     hsn_code TEXT DEFAULT '6204',
+    supplier_code TEXT,
+    cost_price NUMERIC(15, 2) DEFAULT 0,
+    expenses NUMERIC(15, 2) DEFAULT 0,
     stock_status stock_status DEFAULT 'in_stock',
     location TEXT, -- e.g. Shelf A1
     remarks TEXT,
@@ -87,6 +90,8 @@ CREATE TABLE IF NOT EXISTS bill_items (
     sl_no INTEGER, -- Sequence in the bill
     hsn_code TEXT,
     barcode TEXT, -- Link back to inventory if scanned
+    cost_price NUMERIC(15, 2) DEFAULT 0,
+    expenses NUMERIC(15, 2) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_bill_items_bill_id ON bill_items(bill_id);
@@ -141,3 +146,10 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_items_updated_at BEFORE UPDATE ON items FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 CREATE TRIGGER update_layaway_updated_at BEFORE UPDATE ON layaway_transactions FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
 CREATE TRIGGER update_booking_updated_at BEFORE UPDATE ON advance_bookings FOR EACH ROW EXECUTE PROCEDURE update_updated_at_column();
+
+-- ==========================================
+-- PERFORMANCE INDEXES (FOR REPORTS & SCANNING)
+-- ==========================================
+CREATE INDEX IF NOT EXISTS idx_items_barcode_unique ON items(barcode);
+CREATE INDEX IF NOT EXISTS idx_bills_date_reporting ON bills(bill_date);
+CREATE INDEX IF NOT EXISTS idx_bill_items_cost_profit ON bill_items(bill_id, cost_price, expenses);

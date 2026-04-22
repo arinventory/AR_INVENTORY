@@ -59,7 +59,7 @@ export const AllSales: React.FC<AllSalesProps> = ({ onEdit }) => {
     try {
       let query = supabase
         .from('bills')
-        .select('*, customers(name, phone)')
+        .select('*, customers(name, phone), bill_items(quantity, rate, cost_price, expenses)')
         .order('created_at', { ascending: false });
 
       if (fromDate) {
@@ -112,10 +112,16 @@ export const AllSales: React.FC<AllSalesProps> = ({ onEdit }) => {
 
   const stats = useMemo(() => {
     const totalRevenue = filteredSales.reduce((sum, s) => sum + (s.grand_total || 0), 0);
+    const totalCost = filteredSales.reduce((sum, s) => {
+        const billItems = s.bill_items || [];
+        const cost = billItems.reduce((bSum: number, item: any) => bSum + ((item.cost_price || 0) + (item.expenses || 0)) * (item.quantity || 0), 0);
+        return sum + cost;
+    }, 0);
+    const totalProfit = totalRevenue - totalCost;
     const count = filteredSales.length;
     const avgValue = count > 0 ? totalRevenue / count : 0;
 
-    return { totalRevenue, count, avgValue };
+    return { totalRevenue, totalProfit, count, avgValue };
   }, [filteredSales]);
 
   // Pagination Logic
@@ -204,8 +210,8 @@ export const AllSales: React.FC<AllSalesProps> = ({ onEdit }) => {
 
         <Card className="border-l-4 border-l-green-500 !p-4 flex items-center justify-between shadow-sm">
            <div>
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Avg. Bill Value</p>
-              <h3 className="text-2xl font-bold text-charcoal-900 mt-1">{formatCurrency(stats.avgValue)}</h3>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Total Profit</p>
+              <h3 className="text-2xl font-bold text-green-600 mt-1">{formatCurrency(stats.totalProfit)}</h3>
            </div>
            <div className="w-10 h-10 bg-green-50 rounded-full flex items-center justify-center text-green-600">
              <TrendingUp size={20} />
@@ -297,6 +303,7 @@ export const AllSales: React.FC<AllSalesProps> = ({ onEdit }) => {
                   <th className="py-3 px-6 text-right">Subtotal</th>
                   <th className="py-3 px-6 text-right">Tax</th>
                   <th className="py-3 px-6 text-right">Grand Total</th>
+                  <th className="py-3 px-6 text-right">Profit</th>
                   <th className="py-3 px-6 text-center">Type</th>
                   <th className="py-3 px-6 text-center">Actions</th>
                 </tr>
@@ -334,6 +341,17 @@ export const AllSales: React.FC<AllSalesProps> = ({ onEdit }) => {
                       </td>
                       <td className="py-4 px-6 text-right font-mono font-bold text-charcoal-900 text-sm">
                         {formatCurrency(sale.grand_total)}
+                      </td>
+                      <td className="py-4 px-6 text-right">
+                         {(() => {
+                           const profit = (sale.grand_total || 0) - (sale.bill_items || []).reduce((sum: number, item: any) => 
+                             sum + ((item.cost_price || 0) + (item.expenses || 0)) * (item.quantity || 0), 0);
+                           return (
+                             <span className={`font-mono font-bold text-xs ${profit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                               {formatCurrency(profit)}
+                             </span>
+                           );
+                         })()}
                       </td>
                       <td className="py-4 px-6 text-center">
                          <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase border ${

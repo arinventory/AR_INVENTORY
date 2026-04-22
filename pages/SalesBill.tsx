@@ -1,20 +1,6 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  Plus, 
-  Trash2, 
-  Search, 
-  ScanLine, 
-  ChevronDown, 
-  ChevronUp, 
-  CreditCard,
-  Printer,
-  X,
-  FileText,
-  Eye,
-  CheckCircle,
-  RefreshCw
-} from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import * as Lucide from 'lucide-react'; 
 import { Input, Button, Select, Card, toast } from '../components/UIComponents';
 import { BillItem, PaymentRecord, Customer } from '../types';
 import { supabase } from '../supabaseClient';
@@ -22,7 +8,12 @@ import { generateBillNo, createBill, createBillItems, updateBill, createCustomer
 import { InvoicePrint } from '../components/InvoicePrint';
 import { ExchangePrint } from '../components/ExchangePrint';
 
-// --- HELPERS ---
+// Destructure icons for safety
+const { 
+  Plus, Trash2, Search, ScanLine, ChevronDown, ChevronUp, 
+  CreditCard, Printer, X, FileText, Eye, CheckCircle, 
+  RefreshCw, Download 
+} = Lucide;
 
 const formatCurrency = (amount: number) => 
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', minimumFractionDigits: 2 }).format(amount);
@@ -40,288 +31,11 @@ interface SalesBillProps {
 }
 
 export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => {
-  // --- AUTH / CONTEXT STATE ---
-  const [staffId, setStaffId] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    const userJson = localStorage.getItem('user');
-    if (userJson) {
-      try {
-        const user = JSON.parse(userJson);
-        if (user.id) setStaffId(user.id);
-      } catch (err) {
-        console.error('Error parsing user data:', err);
-      }
-    }
-  }, []);
-
-  const resetForm = () => {
-    setBillNo('');
-    setBillDate(new Date().toISOString().split('T')[0]);
-    setCustomer(null);
-    setItems([]);
-    setPaymentMethods([]);
-    setAmountPayableInput('');
-  };
-
-  useEffect(() => {
-    const loadBillData = async () => {
-      if (!billId) {
-        resetForm();
-        try {
-          const nextNo = await generateBillNo();
-          setBillNo(nextNo);
-          const nextVNo = await generateBillNo();
-          setVoucherNo(nextVNo);
-        } catch (err) {
-          console.error("Error fetching bill number:", err);
-        }
-        return;
-      }
-      
-      try {
-        setLoading(true);
-        // Load bill
-        const { data: bill, error: billError } = await supabase
-          .from('bills')
-          .select('*, customers(*)')
-          .eq('id', billId)
-          .single();
-        
-        if (billError) throw billError;
-
-
-        // Set state
-        setBillNo(bill.bill_no);
-        setBillDate(bill.bill_date);
-        
-        // Normalize sale type for UI compatibility
-        const rawType = (bill.sale_type || '').toUpperCase();
-        const normalizedType = (rawType === 'NOGST' || rawType === 'NONGST' || rawType === 'NON_GST') ? 'NON GST' : rawType;
-        setSaleType(normalizedType as 'GST' | 'NON GST');
-
-        setCustomer(bill.customers as Customer);
-        
-        // Load items
-        const { data: billItems, error: itemsError } = await supabase
-          .from('bill_items')
-          .select('*')
-          .eq('bill_id', billId)
-          .order('sl_no', { ascending: true });
-
-        if (itemsError) throw itemsError;
-
-        // Handle items
-        const formattedItems: BillItem[] = (billItems || [])
-          .map(item => ({
-            id: item.id,
-            barcode: item.barcode || '',
-            item_name: item.item_name,
-            quantity: item.quantity,
-            rate: item.rate,
-            line_total: item.line_total,
-            hsn_code: item.hsn_code || '6204'
-          }));
-        setItems(formattedItems);
-
-        // Handle Payments
-        if (bill.payment_method) {
-          try {
-            const payments = JSON.parse(bill.payment_method);
-            setPaymentMethods(payments);
-          } catch (e) {
-            console.error("Error parsing payments", e);
-          }
-        }
-
-        toast({ title: "Bill Loaded", description: `Editing ${bill.bill_no}` });
-      } catch (err: any) {
-        console.error("Error loading bill:", err);
-        toast({ title: "Error", description: "Failed to load bill data", variant: 'destructive' });
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadBillData();
-  }, [billId]);
-
-  // --- PRINT / PREVIEW STATE ---
-  const [activePrintView, setActivePrintView] = useState<'invoice'>('invoice');
-  const [showPreviewModal, setShowPreviewModal] = useState(false);
-
-  // --- CUSTOMER STATE ---
-  const [customer, setCustomer] = useState<Customer | null>(null);
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [customerMatches, setCustomerMatches] = useState<Customer[]>([]);
-  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
-  const [isSearching, setIsSearching] = useState(false);
-  const [showAddCustomerForm, setShowAddCustomerForm] = useState(false);
-  const [newCustomerData, setNewCustomerData] = useState({ name: '', phone: '', address: '' });
-
-
-
-  // --- BILL ITEM STATE ---
-  const [items, setItems] = useState<BillItem[]>([]);
-  const [newItem, setNewItem] = useState({
-    item_name: '',
-    quantity: 1,
-    quantityInput: '1',
-    rate: 0,
-    rateInput: '',
-    hsn_code: '6204',
-  });
-  const [isLoadingItem, setIsLoadingItem] = useState(false);
-
-  // --- BILL META STATE ---
-  const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0]);
-  const [billNo, setBillNo] = useState('');
-  const [voucherNo, setVoucherNo] = useState('');
-  const [saleType, setSaleType] = useState<'GST' | 'NON GST'>('GST');
-  const GST_RATE = 0.05; // Standard 5% for Apparel
   
-
-
-  // --- PAYMENT STATE ---
-  const [paymentMethods, setPaymentMethods] = useState<PaymentRecord[]>([]);
-  const [currentPayment, setCurrentPayment] = useState<{type: string, amount: string, reference: string}>({
-    type: 'cash', amount: '', reference: ''
-  });
-
-  // --- TOTALS STATE ---
-  const [amountPayableInput, setAmountPayableInput] = useState<string>(''); 
-  const [calculatedTotals, setCalculatedTotals] = useState({
-    itemsSubtotal: 0,
-    baseTaxable: 0,
-    gstAmount: 0,
-    grandTotal: 0
-  });
-
-  const isReverseCalculating = useRef(false);
-
-  // --- EFFECTS ---
+  // --- 1. CORE FUNCTIONS (HOISTED) ---
+  // Using traditional function declarations to avoid Temporal Dead Zone (TDZ) issues
   
-
-
-  // --- CALCULATION ---
-
-  useEffect(() => {
-    if (isReverseCalculating.current) return;
-
-    const itemsSubtotal = items.reduce((sum, item) => sum + item.line_total, 0);
-    const preGstTotal = itemsSubtotal;
-
-    // GST is 5% for clothes usually, but keeping user's GST_RATE or making it selectable
-    // User image says "ESTIMATE" sometimes, but let's stick to simple GST math if active
-    const gstRaw = saleType === 'GST' ? preGstTotal * GST_RATE : 0; 
-    const gstAmount = roundToWhole(gstRaw);
-    const grandTotal = itemsSubtotal + gstAmount;
-
-    setCalculatedTotals({
-      itemsSubtotal,
-      baseTaxable: itemsSubtotal, 
-      gstAmount,
-      grandTotal
-    });
-
-    if (Math.abs(grandTotal - (parseFloat(amountPayableInput) || 0)) > 1) {
-       setAmountPayableInput(grandTotal > 0 ? grandTotal.toFixed(0) : '');
-    }
-  }, [items, saleType]);
-
-  const handleAmountPayableChange = (val: string) => {
-    setAmountPayableInput(val);
-    const targetAmount = parseFloat(val);
-    if (isNaN(targetAmount)) return;
-    // No reverse calculation for fashion store yet, keep it simple
-  };
-
-  // --- ACTIONS ---
-
-  useEffect(() => {
-    if (!customerSearch.trim()) {
-      setCustomerMatches([]);
-      setShowCustomerDropdown(false);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setIsSearching(true);
-      try {
-        const data = await searchCustomers(customerSearch);
-        setCustomerMatches(data || []);
-        setShowCustomerDropdown(true);
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [customerSearch]);
-
-  const handleAddItem = () => {
-    const qty = parseFloat(newItem.quantityInput) || 1;
-    const rate = parseFloat(newItem.rateInput) || 0;
-
-    if (!newItem.item_name || rate <= 0) {
-      toast({ title: "Invalid Item", description: "Name and Rate are required", variant: 'destructive' });
-      return;
-    }
-
-    const lineTotal = qty * rate;
-    setItems([...items, {
-      id: Date.now().toString(),
-      item_name: newItem.item_name,
-      quantity: qty,
-      rate: rate,
-      line_total: lineTotal,
-      hsn_code: newItem.hsn_code
-    }]);
-    
-    setNewItem({
-      item_name: '',
-      quantity: 1,
-      quantityInput: '1',
-      rate: 0,
-      rateInput: '',
-      hsn_code: '6204',
-    });
-  };
-
-  const handleRemoveItem = (id: string) => setItems(items.filter(i => i.id !== id));
-
-
-  const handleAddPayment = () => {
-    const amt = parseFloat(currentPayment.amount);
-    if (isNaN(amt) || amt <= 0) {
-      toast({ title: "Invalid Amount", description: "Please enter a valid payment amount", variant: 'destructive' });
-      return;
-    }
-    setPaymentMethods([...paymentMethods, {
-      id: Date.now().toString(),
-      type: currentPayment.type as any,
-      amount: currentPayment.amount,
-      reference: currentPayment.reference
-    }]);
-    setCurrentPayment({ ...currentPayment, amount: '', reference: '' });
-  };
-
-  const handleRemovePayment = (id: string) => setPaymentMethods(paymentMethods.filter(p => p.id !== id));
-
-  // --- PRINT / PREVIEW LOGIC ---
-
-  const handleOpenPreview = (type: 'invoice' | 'exchange') => {
-    setActivePrintView(type);
-    setShowPreviewModal(true);
-  };
-
-  const handleActualPrint = () => {
-    setShowPreviewModal(false);
-    setTimeout(() => window.print(), 100);
-  };
-
-  const handleSaveBill = async () => {
+  async function executeSaveBill() {
     if (!customer || items.length === 0 || !staffId) {
       toast({ 
         title: "Error", 
@@ -358,8 +72,11 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
       const billItems = items.map((item, idx) => ({
         bill_id: savedBill.id, 
         item_name: item.item_name,
+        barcode: item.barcode,
         quantity: item.quantity,
         rate: item.rate,
+        cost_price: item.cost_price || 0,
+        expenses: item.expenses || 0,
         line_total: item.line_total,
         sl_no: idx + 1,
         hsn_code: item.hsn_code || '6204'
@@ -373,7 +90,332 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
     } finally {
       setLoading(false);
     }
+  }
+
+  function handleOpenPreview(type: 'invoice' | 'exchange') {
+    setActivePrintView(type);
+    setShowPreviewModal(true);
+  }
+
+  function handleActualPrint() {
+    setShowPreviewModal(false);
+    setTimeout(() => window.print(), 100);
+  }
+
+  function resetFormFields() {
+    setBillNo('');
+    setBillDate(new Date().toISOString().split('T')[0]);
+    setCustomer(null);
+    setItems([]);
+    setPaymentMethods([]);
+    setAmountPayableInput('');
+  }
+
+  // --- 2. STATE ---
+  const [staffId, setStaffId] = useState<string>('');
+  const [loading, setLoading] = useState(false);
+  const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0]);
+  const [billNo, setBillNo] = useState('');
+  const [voucherNo, setVoucherNo] = useState('');
+  const [saleType, setSaleType] = useState<'GST' | 'NON GST'>('GST');
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [items, setItems] = useState<BillItem[]>([]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentRecord[]>([]);
+  
+  const [activePrintView, setActivePrintView] = useState<'invoice' | 'exchange'>('invoice');
+  const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [customerMatches, setCustomerMatches] = useState<Customer[]>([]);
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showAddCustomerForm, setShowAddCustomerForm] = useState(false);
+  const [newCustomerData, setNewCustomerData] = useState({ name: '', phone: '', address: '' });
+  
+  const [newItem, setNewItem] = useState({
+    barcode: '',
+    item_name: '',
+    quantity: 1,
+    quantityInput: '1',
+    rate: 0,
+    rateInput: '',
+    cost_price: 0,
+    expenses: 0,
+    hsn_code: '6204',
+  });
+  const [isLoadingItem, setIsLoadingItem] = useState(false);
+  const [currentPayment, setCurrentPayment] = useState<{type: string, amount: string, reference: string}>({
+    type: 'cash', amount: '', reference: ''
+  });
+  const [amountPayableInput, setAmountPayableInput] = useState<string>(''); 
+  const [calculatedTotals, setCalculatedTotals] = useState({
+    itemsSubtotal: 0,
+    baseTaxable: 0,
+    gstAmount: 0,
+    grandTotal: 0
+  });
+
+  const barcodeRef = useRef<HTMLInputElement>(null);
+  const isReverseCalculating = useRef(false);
+  const GST_RATE = 0.05; 
+
+  // --- 3. EFFECTS ---
+
+  useEffect(() => {
+    const userJson = localStorage.getItem('user');
+    if (userJson) {
+      try {
+        const user = JSON.parse(userJson);
+        if (user.id) setStaffId(user.id);
+      } catch (err) {
+        console.error('Error parsing user data:', err);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const loadBillData = async () => {
+      if (!billId) {
+        resetFormFields();
+        try {
+          const nextNo = await generateBillNo();
+          setBillNo(nextNo);
+          const nextVNo = await generateBillNo();
+          setVoucherNo(nextVNo);
+        } catch (err) {
+          console.error("Error fetching bill number:", err);
+        }
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        const { data: bill, error: billError } = await supabase
+          .from('bills')
+          .select('*, customers(*)')
+          .eq('id', billId)
+          .single();
+        
+        if (billError) throw billError;
+
+        setBillNo(bill.bill_no);
+        setBillDate(bill.bill_date);
+        
+        const rawType = (bill.sale_type || '').toUpperCase();
+        const normalizedType = (rawType === 'NOGST' || rawType === 'NONGST' || rawType === 'NON_GST') ? 'NON GST' : rawType;
+        setSaleType(normalizedType as 'GST' | 'NON GST');
+
+        setCustomer(bill.customers as Customer);
+        
+        const { data: billItems, error: itemsError } = await supabase
+          .from('bill_items')
+          .select('*')
+          .eq('bill_id', billId)
+          .order('sl_no', { ascending: true });
+
+        if (itemsError) throw itemsError;
+
+        const formattedItems: BillItem[] = (billItems || [])
+          .map(item => ({
+            id: item.id,
+            barcode: item.barcode || '',
+            item_name: item.item_name,
+            quantity: item.quantity,
+            rate: item.rate,
+            line_total: item.line_total,
+            hsn_code: item.hsn_code || '6204'
+          }));
+        setItems(formattedItems);
+
+        if (bill.payment_method) {
+          try {
+            const payments = JSON.parse(bill.payment_method);
+            setPaymentMethods(payments);
+          } catch (e) {
+            console.error("Error parsing payments", e);
+          }
+        }
+
+        toast({ title: "Bill Loaded", description: `Editing ${bill.bill_no}` });
+      } catch (err: any) {
+        console.error("Error loading bill:", err);
+        toast({ title: "Error", description: "Failed to load bill data", variant: 'destructive' });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadBillData();
+  }, [billId]);
+
+  useEffect(() => {
+    if (isReverseCalculating.current) return;
+
+    const itemsSubtotal = items.reduce((sum, item) => sum + item.line_total, 0);
+    const gstRaw = saleType === 'GST' ? itemsSubtotal * GST_RATE : 0; 
+    const gstAmount = roundToWhole(gstRaw);
+    const grandTotal = itemsSubtotal + gstAmount;
+
+    setCalculatedTotals({
+      itemsSubtotal,
+      baseTaxable: itemsSubtotal, 
+      gstAmount,
+      grandTotal
+    });
+
+    if (Math.abs(grandTotal - (parseFloat(amountPayableInput) || 0)) > 1) {
+       setAmountPayableInput(grandTotal > 0 ? grandTotal.toFixed(0) : '');
+    }
+  }, [items, saleType]);
+
+  useEffect(() => {
+    if (!customerSearch.trim()) {
+      setCustomerMatches([]);
+      setShowCustomerDropdown(false);
+      return;
+    }
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const data = await searchCustomers(customerSearch);
+        setCustomerMatches(data || []);
+        setShowCustomerDropdown(true);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [customerSearch]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'Enter') {
+        e.preventDefault();
+        executeSaveBill();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffId, customer, items, billNo, billDate, saleType, calculatedTotals, paymentMethods]);
+
+  // --- 4. HANDLERS ---
+
+  const handleSelectCustomer = (cust: Customer) => {
+    setCustomer(cust);
+    setCustomerSearch('');
+    setShowCustomerDropdown(false);
+    toast({ title: 'Customer Selected', description: cust.name });
   };
+
+  const handleAddNewCustomer = async () => {
+    if (!newCustomerData.name || !newCustomerData.phone) {
+      toast({ title: 'Validation Error', description: 'Name and Phone are required', variant: 'destructive' });
+      return;
+    }
+    try {
+      const cust = await createCustomer(newCustomerData);
+      setCustomer(cust);
+      setShowAddCustomerForm(false);
+      setNewCustomerData({ name: '', phone: '', address: '' });
+      toast({ title: 'Customer Added', description: cust.name });
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
+  };
+
+  const handleBarcodeScan = async (barcode: string) => {
+    if (!barcode.trim()) return;
+    setIsLoadingItem(true);
+    try {
+      const { data, error } = await supabase
+        .from('items')
+        .select('*')
+        .eq('barcode', barcode)
+        .single();
+      
+      if (error || !data) {
+        toast({ title: 'Not Found', description: 'Item with this barcode not in inventory', variant: 'destructive' });
+        return;
+      }
+
+      const lineTotal = 1 * data.rate;
+      setItems(prev => [...prev, {
+        id: Date.now().toString() + Math.random(),
+        barcode: data.barcode,
+        item_name: data.item_name,
+        quantity: 1,
+        rate: data.rate,
+        cost_price: data.cost_price,
+        expenses: data.expenses,
+        line_total: lineTotal,
+        hsn_code: data.hsn_code
+      }]);
+
+      setNewItem(prev => ({ ...prev, barcode: '' }));
+      toast({ title: 'Item Added', description: data.item_name });
+      barcodeRef.current?.focus();
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setIsLoadingItem(false);
+    }
+  };
+
+  const handleAddItem = () => {
+    const qty = parseFloat(newItem.quantityInput) || 1;
+    const rate = parseFloat(newItem.rateInput) || 0;
+
+    if (!newItem.item_name || rate <= 0) {
+      toast({ title: "Invalid Item", description: "Name and Rate are required", variant: 'destructive' });
+      return;
+    }
+
+    const lineTotal = qty * rate;
+    setItems([...items, {
+      id: Date.now().toString(),
+      barcode: newItem.barcode,
+      item_name: newItem.item_name,
+      quantity: qty,
+      rate: rate,
+      cost_price: newItem.cost_price,
+      expenses: newItem.expenses,
+      line_total: lineTotal,
+      hsn_code: newItem.hsn_code
+    }]);
+    
+    setNewItem({
+      barcode: '',
+      item_name: '',
+      quantity: 1,
+      quantityInput: '1',
+      rate: 0,
+      rateInput: '',
+      cost_price: 0,
+      expenses: 0,
+      hsn_code: '6204',
+    });
+  };
+
+  const handleRemoveItem = (id: string) => setItems(items.filter(i => i.id !== id));
+
+  const handleAddPayment = () => {
+    const amt = parseFloat(currentPayment.amount);
+    if (isNaN(amt) || amt <= 0) {
+      toast({ title: "Invalid Amount", description: "Please enter a valid payment amount", variant: 'destructive' });
+      return;
+    }
+    setPaymentMethods([...paymentMethods, {
+      id: Date.now().toString(),
+      type: currentPayment.type as any,
+      amount: currentPayment.amount,
+      reference: currentPayment.reference
+    }]);
+    setCurrentPayment({ ...currentPayment, amount: '', reference: '' });
+  };
+
+  const handleRemovePayment = (id: string) => setPaymentMethods(paymentMethods.filter(p => p.id !== id));
 
   const totalPaid = paymentMethods.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
   const balanceDue = calculatedTotals.grandTotal - totalPaid;
@@ -381,7 +423,6 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
   return (
     <div className="flex h-full bg-app-bg relative">
       
-      {/* 1. PRINT COMPONENTS */}
       <div className="print-block">
         {activePrintView === 'invoice' ? (
           <InvoicePrint 
@@ -398,7 +439,6 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
         )}
       </div>
 
-      {/* 2. ON-SCREEN PREVIEW MODAL */}
       {showPreviewModal && (
         <div className="fixed inset-0 z-[100] bg-charcoal-900/80 backdrop-blur-md flex items-center justify-center p-8 print:hidden">
            <div className="bg-gray-100 w-full max-w-[1000px] h-full rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200 border border-white/20">
@@ -444,9 +484,7 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
         </div>
       )}
       
-      {/* 3. MAIN WORKSPACE */}
       <div className="flex-1 p-6 overflow-y-auto pb-32 space-y-6 print:hidden">
-        {/* Customer & Meta */}
         <div className="grid grid-cols-2 gap-6">
           <Card className="shadow-sm">
              {!showAddCustomerForm ? (
@@ -507,13 +545,27 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
           </Card>
         </div>
 
-        {/* Add Items */}
         <Card title="Add Particulars">
           <div className="grid grid-cols-12 gap-3 items-end mb-6">
-            <div className="col-span-6"><Input label="Particulars (Description)" placeholder="e.g. Cotton Shirt - Blue" value={newItem.item_name} onChange={(e) => setNewItem({...newItem, item_name: e.target.value})} /></div>
-            <div className="col-span-2"><Input label="Qnty" type="number" isMonospaced value={newItem.quantityInput} onChange={(e) => setNewItem({...newItem, quantityInput: e.target.value})} /></div>
+            <div className="col-span-3">
+              <Input 
+                label="Scan Barcode" 
+                placeholder="Barcode..." 
+                value={newItem.barcode} 
+                ref={barcodeRef}
+                onChange={(e) => setNewItem({...newItem, barcode: e.target.value})} 
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleBarcodeScan(newItem.barcode);
+                  }
+                }}
+                icon={isLoadingItem ? <RefreshCw size={14} className="animate-spin text-gold-500" /> : <ScanLine size={14}/>}
+              />
+            </div>
+            <div className="col-span-4"><Input label="Particulars (Description)" placeholder="e.g. Cotton Shirt - Blue" value={newItem.item_name} onChange={(e) => setNewItem({...newItem, item_name: e.target.value})} /></div>
+            <div className="col-span-1"><Input label="Qnty" type="number" isMonospaced value={newItem.quantityInput} onChange={(e) => setNewItem({...newItem, quantityInput: e.target.value})} /></div>
             <div className="col-span-3"><Input label="Rate (₹)" type="number" isMonospaced value={newItem.rateInput} onChange={(e) => setNewItem({...newItem, rateInput: e.target.value})} /></div>
-            <div className="col-span-1 flex justify-end"><Button onClick={handleAddItem} className="!px-3 bg-charcoal-900 text-white hover:bg-black"><Plus size={20} /></Button></div>
+            <div className="col-span-1 flex justify-end"><Button onClick={handleAddItem} className="!px-3 bg-charcoal-900 text-white hover:bg-black w-full"><Plus size={20} /></Button></div>
           </div>
           <div className="border border-gray-200 rounded-md overflow-hidden">
             <table className="w-full text-left text-sm">
@@ -546,13 +598,11 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
         </Card>
       </div>
 
-      {/* Action Panel */}
       <div className="w-[420px] bg-white border-l border-gray-300 flex flex-col z-40 h-full shadow-lg print:hidden">
         <div className="p-5 border-b border-gray-200 bg-charcoal-900 text-white font-bold uppercase tracking-wider text-sm flex justify-between items-center">
           <span>{billId ? `Memo: ${billNo}` : 'Bill Summary'}</span>
         </div>
         <div className="flex-1 p-6 space-y-6 overflow-y-auto">
-          {/* Totals */}
           <div className="space-y-4 pb-6 border-b border-gray-200">
              <div className="flex justify-between items-center text-gray-500 font-medium"><span>Subtotal Amount</span><span className="font-mono font-bold text-charcoal-900">{formatCurrency(calculatedTotals.itemsSubtotal)}</span></div>
              <div className="flex justify-between items-center text-gray-500 font-medium"><span>GST (5%)</span><span className="font-mono font-bold text-charcoal-900">{formatCurrency(calculatedTotals.gstAmount)}</span></div>
@@ -563,7 +613,6 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
              </div>
           </div>
 
-          {/* Payment */}
           <div className="bg-gray-50 p-5 rounded-xl border border-gray-200 space-y-4">
              <h4 className="text-xs font-bold uppercase flex items-center gap-2 text-charcoal-700">Payment Details</h4>
              <div className="grid grid-cols-2 gap-3">
@@ -573,7 +622,6 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
              <Button fullWidth onClick={handleAddPayment} className="bg-charcoal-900 text-gold-500 border-none shadow-lg font-bold">Add Payment</Button>
           </div>
 
-          {/* Payment List */}
           {paymentMethods.length > 0 && (
             <div className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
                <table className="w-full text-xs divide-y divide-gray-100">
@@ -592,10 +640,13 @@ export const SalesBill: React.FC<SalesBillProps> = ({ billId, onClearEdit }) => 
 
         <div className="p-6 bg-white border-t border-gray-200 grid grid-cols-2 gap-3">
            <Button variant="secondary" onClick={() => handleOpenPreview('invoice')} className="h-14 font-bold tracking-widest bg-gray-50 border-gray-200 text-gray-600"><Eye size={20} className="mr-2"/> View</Button>
-           <Button onClick={handleSaveBill} className="h-14 font-bold tracking-widest shadow-xl" disabled={loading}>
-             {loading ? <RefreshCw className="animate-spin mr-2" size={20} /> : <Printer size={20} className="mr-2" />}
-             SAVE & PRINT
-           </Button>
+           <div className="flex flex-col gap-2">
+              <Button onClick={executeSaveBill} className="h-14 font-bold tracking-widest shadow-xl flex-1" disabled={loading}>
+                {loading ? <RefreshCw className="animate-spin mr-2" size={20} /> : <Printer size={20} className="mr-2" />}
+                SAVE & PRINT
+              </Button>
+              <div className="text-[9px] text-center text-gray-400 font-bold uppercase tracking-tighter">Shortcut: Ctrl + Enter to Save</div>
+           </div>
         </div>
       </div>
     </div>
